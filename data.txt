@@ -1,1 +1,7 @@
-{}
+{
+    "2": {
+        "path": "C:\\Users\\vallu\\Documents\\bin\\dump",
+        "hash": "05c55d8bd45d9dbc76f426d51de18492ef83ec837db1f9e569ae534af8bbd888",
+        "salt": "385a3f2e7c7def6c805c04cddc60c532"
+    }
+}

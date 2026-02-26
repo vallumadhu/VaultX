@@ -1,8 +1,14 @@
-import secrets,json,os
+import secrets,json,os,sys
 import numpy as np
 from cryptography.hazmat.primitives import hashes
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+def get_base_dir():
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    else:
+        return os.path.dirname(os.path.abspath(__file__))
+
+BASE_DIR = get_base_dir()
 DATA_FILE = os.path.join(BASE_DIR, "data.txt")
 
 class Encrypter:
@@ -14,7 +20,25 @@ class Encrypter:
         file_paths = os.listdir(self.path)
 
         for file_path in file_paths:
-            self.encrypt(file_path)
+            if os.path.isfile(os.path.join(self.path,file_path)):
+                self.encrypt(file_path)
+
+            if os.path.isdir(os.path.join(self.path,file_path)):
+                #encrypting folder name
+                encoded_foldername = file_path.encode()
+                encoded_foldername = np.frombuffer(encoded_foldername,dtype=np.uint8)
+
+                encoded_password = self.password.encode()
+                encoded_password = np.frombuffer(encoded_password, dtype=np.uint8)
+
+                resized_password = np.resize(encoded_password,encoded_foldername.shape)
+
+                encrypted_foldername = np.bitwise_xor(encoded_foldername,resized_password)
+                encrypted_foldername_hex = encrypted_foldername.tobytes().hex()
+
+                os.rename(os.path.join(self.path,file_path), os.path.join(self.path,encrypted_foldername_hex))
+
+                e = Encrypter(os.path.join(self.path,encrypted_foldername_hex),self.password)
     
     def get_random_salt(self,bytes_len=16):
         return secrets.token_hex(bytes_len)
@@ -28,22 +52,25 @@ class Encrypter:
         return h.finalize().hex(),salt
     
     def store_data(self):
-        with open(DATA_FILE,"r+") as f:
-            data = json.load(f)
+        data = {}
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "r") as f:
+                try:
+                    data = json.load(f)
+                except json.JSONDecodeError:
+                    data = {}
 
-            hash_password,salt=self.get_hash_password()
+        hash_password, salt = self.get_hash_password()
+        record_id = str(len(data))
 
-            record_id = str(len(data))
+        data[record_id] = {
+            "path": self.path,
+            "hash": hash_password,
+            "salt": salt
+        }
 
-            data[record_id] = {
-                "path": self.path,
-                "hash": hash_password,
-                "salt": salt
-            }
-
-            f.seek(0)
-            json.dump(data, f)
-            f.truncate()
+        with open(DATA_FILE, "w") as f:
+            json.dump(data, f, indent=4)
     
     def encrypt(self,file_name):
         encoded_password = self.password.encode()
@@ -88,7 +115,26 @@ class Decrypter:
                 found = True
                 if self.check_password(folder_data):
                     for file_name in os.listdir(self.path):
-                        self.decrypt(file_name)
+                        if os.path.isfile(os.path.join(self.path,file_name)):
+                            self.decrypt(file_name)
+                        if os.path.isdir(os.path.join(self.path,file_name)):
+                            d = Decrypter(os.path.join(self.path,file_name),self.password)
+
+                            #decrypting folder name
+                            encoded_foldername = bytes.fromhex(file_name)
+                            encoded_foldername = np.frombuffer(encoded_foldername, dtype=np.uint8)
+
+                            encoded_password = self.password.encode()
+                            encoded_password = np.frombuffer(encoded_password, dtype=np.uint8)
+
+                            resized_password = np.resize(encoded_password,encoded_foldername.shape)
+
+                            decrypted_foldername = np.bitwise_xor(encoded_foldername,resized_password)
+                            decrypted_foldername_hex = decrypted_foldername.tobytes().decode()
+
+                            os.rename(os.path.join(self.path,file_name), os.path.join(self.path,decrypted_foldername_hex))
+                            
+                    self.remove_data()
                     break
                 else:
                     raise ValueError("Incorrect Password")
@@ -133,6 +179,15 @@ class Decrypter:
             f.write(decrypted_bytes)
         
         os.rename(os.path.join(self.path,file_name),os.path.join(self.path,decrypted_filename_hex))
+
+    def remove_data(self):
+        with open(DATA_FILE, "r") as f:
+            data = json.load(f)
+
+        data = {k: v for k, v in data.items() if v["path"] != self.path}
+
+        with open(DATA_FILE, "w") as f:
+            json.dump(data, f, indent=4)
 
 if not os.path.exists(DATA_FILE):
     with open(DATA_FILE, "w") as f:
