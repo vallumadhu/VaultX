@@ -59,32 +59,31 @@ class Decrypter:
         h = hashes.Hash(hashes.SHA256())
         h.update(self.key + self.salt)
         return h.finalize().hex() == hash_password
-
     def decrypt(self, file_name):
         encoded_password = self.password.encode()
+        encoded_password = np.frombuffer(encoded_password, dtype=np.uint8).copy()
 
-        with open(os.path.join(self.path, file_name), "rb") as f:
-            file_data = f.read()
+        file_path = os.path.join(self.path, file_name)
 
-        nonce = file_data[:12]
-        ciphertext = file_data[12:]
-
-        decrypted_bytes = self.aes.decrypt(nonce, ciphertext, None)
+        with open(file_path, "rb") as f:
+            num_chunks = int.from_bytes(f.read(4), 'big')
+            decrypted_data = b""
+            for _ in range(num_chunks):
+                chunk_nonce = f.read(12)
+                chunk_size  = int.from_bytes(f.read(8), 'big')
+                encrypted_chunk = f.read(chunk_size)
+                decrypted_data += self.aes.decrypt(chunk_nonce, encrypted_chunk, None)
 
         encoded_filename = bytes.fromhex(file_name[:-4])
         encoded_filename = np.frombuffer(encoded_filename, dtype=np.uint8).copy()
-        encoded_password = np.frombuffer(encoded_password, dtype=np.uint8).copy()
         resized_password = np.resize(encoded_password, encoded_filename.shape)
-
         decrypted_filename = np.bitwise_xor(encoded_filename, resized_password)
         decrypted_filename_str = decrypted_filename.tobytes().decode()
 
-        with open(os.path.join(self.path, file_name), "wb") as f:
-            f.write(decrypted_bytes)
+        with open(file_path, "wb") as f:
+            f.write(decrypted_data)
 
-        os.rename(os.path.join(self.path, file_name),
-                  os.path.join(self.path, decrypted_filename_str))
-
+        os.rename(file_path, os.path.join(self.path, decrypted_filename_str))
     def remove_data(self):
         with open(DATA_FILE, "r") as f:
             data = json.load(f)

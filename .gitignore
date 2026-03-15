@@ -1,0 +1,7 @@
+VaultX.spec
+/dist
+/build
+/.venv
+__pycache__/
+*.pyc
+data.txt

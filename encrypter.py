@@ -96,31 +96,32 @@ class Encrypter:
             json.dump(data, f, indent=4)
         
     
-    def encrypt(self,file_name):
+    def encrypt(self, file_name):
         encoded_password = self.password.encode()
         encoded_password = np.frombuffer(encoded_password, dtype=np.uint8).copy()
 
-        file_data = None
-        with open(os.path.join(self.path,file_name),"rb") as f:
-            file_data = f.read()
-        
-        #encrypting data
-        nonce = os.urandom(12)
-        encrypted_data = self.aes.encrypt(nonce,file_data,None)
+        file_path = os.path.join(self.path, file_name)
+        CHUNK_SIZE = 512 * 1024 * 1024
 
-        #encrypting file name
+        encrypted_chunks = []
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                chunk_nonce = os.urandom(12)
+                encrypted_chunk = self.aes.encrypt(chunk_nonce, chunk, None)
+                encrypted_chunks.append(chunk_nonce + len(encrypted_chunk).to_bytes(8, 'big') + encrypted_chunk)
+
         encoded_filename = file_name.encode()
-        encoded_filename = np.frombuffer(encoded_filename,dtype=np.uint8).copy()
-        resized_password = np.resize(encoded_password,encoded_filename.shape)
+        encoded_filename = np.frombuffer(encoded_filename, dtype=np.uint8).copy()
+        resized_password = np.resize(encoded_password, encoded_filename.shape)
+        encrypted_filename = np.bitwise_xor(encoded_filename, resized_password)
+        encrypted_filename_hex = encrypted_filename.tobytes().hex() + ".enc"
 
-        encrypted_filename = np.bitwise_xor(encoded_filename,resized_password)
-        encrypted_filename_hex = encrypted_filename.tobytes().hex()
+        with open(file_path, "wb") as f:
+            f.write(len(encrypted_chunks).to_bytes(4, 'big'))
+            for chunk in encrypted_chunks:
+                f.write(chunk)
 
-        encrypted_filename_hex+=".enc"
-
-        with open(os.path.join(self.path,file_name),"wb") as f:
-            f.write(nonce+encrypted_data)
-        
-        os.rename(os.path.join(self.path,file_name),os.path.join(self.path,encrypted_filename_hex))
-
-    
+        os.rename(file_path, os.path.join(self.path, encrypted_filename_hex))
